@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermesi"
+version = "0.1.0"
+description = "Server-side client for Hermesi: publish events, mint subscriber tokens and preference links, with retries and idempotency built in."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Hermesi" }]
+keywords = ["hermesi", "notifications", "sdk"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = ["httpx>=0.27,<1"]
+
+[project.urls]
+Homepage = "https://github.com/hermesihq/python"
+Issues = "https://github.com/hermesihq/python/issues"
+Changelog = "https://github.com/hermesihq/python/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "respx>=0.21",
+  "mypy>=1.11",
+  "ruff>=0.6",
+  "build>=1.2",
+  "twine>=5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hermesi"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+# Optional/Union stay: this supports Python 3.9, where `X | None` is not valid in a runtime-evaluated alias, and mixing the two
+# spellings would be worse than either. Line length is for code; the docstrings and comments are prose.
+ignore = ["E501", "UP007", "UP045"]
+
+[tool.ruff.lint.per-file-ignores]
+# Nested `with` stays in tests: the parenthesised multi-item form is Python 3.10+, and this package supports 3.9.
+"tests/*" = ["SIM117"]

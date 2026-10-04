@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy
+      - run: pytest
+
+  # What pip would serve: build the wheel and the sdist, check their metadata, install the wheel into a clean environment and
+  # import it. Everything above resolves the package through this checkout, which proves the source and not the artefact.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - run: |
+          python -m venv /tmp/consumer
+          /tmp/consumer/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/consumer/bin/python -c "import hermesi; print(hermesi.__version__); from hermesi import Hermesi; Hermesi(simulate=True).events.trigger('a.sent', 'u')"
+          test -f /tmp/consumer/lib/python3.12/site-packages/hermesi/py.typed
