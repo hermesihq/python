@@ -15,3 +15,5 @@ First release.
 - Typed exceptions: `AuthenticationError`, `ForbiddenError`, `NotFoundError`, `ValidationError`, `RateLimitError`,
   `ServerError`, `HermesiConnectionError`.
 - `mint_subscriber_token`, and `simulate=True` to test code that publishes events without a network.
+- A subscriber id of `.` or `..` is refused: a URL parser resolves it even when escaped, which would aim a request carrying your
+  secret key at another endpoint.

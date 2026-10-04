@@ -59,6 +59,25 @@ def test_requires_an_external_id(client: Hermesi) -> None:
 
 
 @respx.mock
+@pytest.mark.parametrize("external_id", [".", ".."])
+def test_refuses_an_id_a_url_parser_would_resolve_into_another_path(client: Hermesi, external_id: str) -> None:
+    route = respx.post(url__regex=rf"{BASE}/.*").respond(200, json={"url": "https://x/p"})
+
+    with pytest.raises(ValueError, match="external_id"):
+        client.subscribers.preference_link(external_id)
+
+    assert not route.called
+
+
+async def test_the_async_client_refuses_them_too() -> None:
+    from hermesi import AsyncHermesi
+
+    async with AsyncHermesi(simulate=True) as hermesi:
+        with pytest.raises(ValueError, match="external_id"):
+            await hermesi.subscribers.preference_link("..")
+
+
+@respx.mock
 def test_retries_a_preference_link_too(client: Hermesi, sleeper: Sleeper) -> None:
     route = respx.post(f"{BASE}/v1/subscribers/u/preference-link").mock(
         side_effect=[httpx.Response(503), httpx.Response(200, json={"url": "https://x/p"})]
