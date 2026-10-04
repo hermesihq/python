@@ -48,6 +48,16 @@ def _recipient_wire(recipient: Union[Recipient, list[Recipient]]) -> Any:
     return recipient.to_wire() if isinstance(recipient, Subscriber) else recipient
 
 
+def _path_segment(external_id: str) -> str:
+    """A subscriber's id as one path segment. ``.`` and ``..`` are refused: a URL parser resolves them, even percent-encoded, which
+    would aim a request carrying the secret key at another endpoint."""
+    if not external_id:
+        raise ValueError("external_id is required")
+    if external_id in (".", ".."):
+        raise ValueError(f'external_id cannot be "{external_id}"')
+    return quote(external_id, safe="")
+
+
 def _instant(value: Union[str, datetime]) -> str:
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -372,11 +382,10 @@ class Subscribers:
     def preference_link(self, external_id: str) -> PreferenceLink:
         """A link to the hosted preference page for one subscriber. It needs no login and works for about a year."""
         client = self._client
-        if not external_id:
-            raise ValueError("external_id is required")
+        segment = _path_segment(external_id)
         if client.simulate:
-            return PreferenceLink(url=f"https://simulated.invalid/preferences/{quote(external_id, safe='')}")
-        response = client._send("POST", f"/v1/subscribers/{quote(external_id, safe='')}/preference-link", b"{}", None)
+            return PreferenceLink(url=f"https://simulated.invalid/preferences/{segment}")
+        response = client._send("POST", f"/v1/subscribers/{segment}/preference-link", b"{}", None)
         return client._link(response)
 
 
@@ -436,11 +445,8 @@ class AsyncSubscribers:
     async def preference_link(self, external_id: str) -> PreferenceLink:
         """See :meth:`Subscribers.preference_link`."""
         client = self._client
-        if not external_id:
-            raise ValueError("external_id is required")
+        segment = _path_segment(external_id)
         if client.simulate:
-            return PreferenceLink(url=f"https://simulated.invalid/preferences/{quote(external_id, safe='')}")
-        response = await client._send(
-            "POST", f"/v1/subscribers/{quote(external_id, safe='')}/preference-link", b"{}", None
-        )
+            return PreferenceLink(url=f"https://simulated.invalid/preferences/{segment}")
+        response = await client._send("POST", f"/v1/subscribers/{segment}/preference-link", b"{}", None)
         return client._link(response)

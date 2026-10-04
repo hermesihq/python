@@ -115,6 +115,16 @@ def test_a_preference_link_is_minted(live: Hermesi) -> None:
     assert "/preferences/" in link.url
 
 
+def test_a_preference_link_for_an_id_with_characters_a_path_treats_specially(live: Hermesi) -> None:
+    """The same class of id once made the server answer 404 for a subscriber that exists."""
+    subscriber = f"team/{uuid.uuid4().hex[:8]} é?#"
+    live.events.trigger("order.shipped", Subscriber(subscriber))
+
+    link = live.subscribers.preference_link(subscriber)
+
+    assert "/preferences/" in link.url
+
+
 def test_a_minted_token_is_accepted_by_the_client_api(live: Hermesi) -> None:
     """The token format is the one thing the server verifies cryptographically, so only the real server can say it is right."""
     token = live.tokens.mint(SUBSCRIBER, environment_id=ENVIRONMENT)
