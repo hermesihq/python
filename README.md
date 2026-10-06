@@ -59,9 +59,17 @@ with the same body within 24 hours returns the original answer, and `result.repl
 
 ### Other fields
 
-`actor=Actor(external_id=..., name=...)`, `delay="15m"`, `send_at=datetime(..., tzinfo=timezone.utc)` (a naive datetime is
-refused as ambiguous), `override={...}`, `tenant="..."`. A payload may hold `datetime`, `date`, `Decimal` and `UUID` values; they
-are serialised as ISO text and strings.
+`actor=Actor(external_id=..., name=...)`, `delay="PT15M"`, `send_at=datetime(..., tzinfo=timezone.utc)`, `override={...}`,
+`tenant="..."`. A payload may hold `datetime`, `date`, `Decimal` and `UUID` values; they are serialised as ISO text and strings.
+
+### Scheduling
+
+`delay` holds the event back for an ISO 8601 duration (`PT15M`, `PT1H30M`, `P1D`: **not** `15m`) and `send_at` until an instant
+(a `datetime` with a timezone: a naive one is refused as ambiguous). Give one, not both, at most 30 days ahead. A time already past runs at once. The run starts within about a minute after
+its time, not at the second. A request the server cannot honour is refused with `422 invalid_schedule`: it is never sent
+immediately instead. Pass your own idempotency key and retrying a scheduled event does not schedule it twice.
+
+`override` and `tenant` are accepted by the API but not acted on yet.
 
 ## Subscriber tokens
 
