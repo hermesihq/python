@@ -7,6 +7,23 @@ lists breaking changes first.
 
 ## Unreleased
 
+### Added
+
+- **`events.get(event_id)`**: the notification each recipient got from an event and the messages each produced, with how far each
+  got. `EventRun`, `RunNotification`, `Message` (`is_final` tells when nothing more will happen).
+- **Subscribers**: `subscribers.put`, `patch`, `get`, `delete`, `register_channel`, `remove_channel`, `preferences` and
+  `update_preferences`. An argument you give is set, `None` clears the field and one you leave out is left alone (`UNSET` is the
+  "not given" marker); `data` replaces. `SubscriberProfile`, `ChannelIdentity`, `Preferences`.
+- **`messages.send` and `messages.get`**: the direct send, for when the channel is a requirement (an OTP that must be an SMS). It
+  keeps one idempotency key across its retries, generated if you give none. `MessageResult`.
+- `ConflictError` for a `409`, `HermesiSimulationError`, `simulated_calls` and `SimulatedCall` for test mode. In test mode reads raise
+  rather than invent an answer.
+
+### Changed
+
+- Internal: the request-building rules shared by the synchronous and the asynchronous client moved out of `_client.py`; no behaviour
+  change for `events.trigger`, `subscribers.preference_link` or `tokens.mint`.
+
 ### Fixed
 
 - **The documentation showed `delay="15m"`**, a format the server does not accept: `delay` is an ISO 8601 duration, `PT15M`. It
