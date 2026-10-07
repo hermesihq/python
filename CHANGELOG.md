@@ -5,7 +5,7 @@ All notable changes to `hermesi`. This file describes what a consumer gets.
 **`0.x` means the public API can still change.** A minor bump may contain a breaking change; a patch bump will not. Each release
 lists breaking changes first.
 
-## Unreleased
+## 0.2.0 (2026-10-07)
 
 ### Added
 

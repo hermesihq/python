@@ -38,7 +38,7 @@ from ._wire import path_segment as _path_segment
 
 T = TypeVar("T")
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_TIMEOUT = 30.0
 ENV_KEY = "HERMESI_SECRET_KEY"
 ENV_URL = "HERMESI_BASE_URL"

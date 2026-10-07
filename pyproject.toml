@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermesi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Server-side client for Hermesi: publish events, mint subscriber tokens and preference links, with retries and idempotency built in."
 readme = "README.md"
 license = { text = "MIT" }
