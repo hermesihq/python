@@ -72,6 +72,10 @@ class NotFoundError(HermesiAPIError):
     """404: for an event, a ``recipient`` that is not a subscriber in this environment."""
 
 
+class ConflictError(HermesiAPIError):
+    """409: an idempotency key that was already used with a different request body (``idempotency_key_reused``)."""
+
+
 class ValidationError(HermesiAPIError):
     """400 or 422: the request was refused as malformed; ``detail`` names the fields."""
 
@@ -88,6 +92,7 @@ _BY_STATUS: dict[int, type[HermesiAPIError]] = {
     401: AuthenticationError,
     403: ForbiddenError,
     404: NotFoundError,
+    409: ConflictError,
     400: ValidationError,
     422: ValidationError,
     429: RateLimitError,

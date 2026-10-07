@@ -11,7 +11,9 @@ a format. Run them against a development instance of Hermesi (never production: 
     HERMESI_LIVE_SUBSCRIBER=user_1 \\
     pytest tests/test_live.py
 
-The subscriber must already exist in that environment.
+The subscriber must already exist in that environment. The tests that send a direct message or write preferences also need, in that
+environment, a published `sms` template whose key is HERMESI_LIVE_SMS_TEMPLATE (its text may use `{{ payload.code }}`) and a
+non-critical category whose key is HERMESI_LIVE_CATEGORY; without them those tests are skipped.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import pytest
 
 from hermesi import (
     AuthenticationError,
+    ConflictError,
     Hermesi,
     HermesiConnectionError,
     NotFoundError,
@@ -38,6 +41,8 @@ SECRET = os.environ.get("HERMESI_LIVE_SECRET_KEY", "")
 PUBLIC = os.environ.get("HERMESI_LIVE_PUBLIC_KEY", "")
 ENVIRONMENT = os.environ.get("HERMESI_LIVE_ENVIRONMENT_ID", "")
 SUBSCRIBER = os.environ.get("HERMESI_LIVE_SUBSCRIBER", "")
+SMS_TEMPLATE = os.environ.get("HERMESI_LIVE_SMS_TEMPLATE", "")
+CATEGORY = os.environ.get("HERMESI_LIVE_CATEGORY", "")
 
 pytestmark = pytest.mark.skipif(
     not (URL and SECRET and PUBLIC and ENVIRONMENT and SUBSCRIBER),
@@ -153,3 +158,184 @@ def test_an_unreachable_server_is_a_connection_error() -> None:
     with Hermesi(SECRET, base_url="http://127.0.0.1:9", retry=RetryPolicy(max_retries=0), timeout=2) as hermesi:
         with pytest.raises(HermesiConnectionError):
             hermesi.events.trigger("order.shipped", SUBSCRIBER)
+
+
+# --- the rest of the server API: events read back, subscribers, direct messages --------------------
+
+
+def _fresh() -> str:
+    return f"live_{uuid.uuid4().hex[:10]}"
+
+
+def test_an_event_is_read_back_with_its_notification(live: Hermesi) -> None:
+    sent = live.events.trigger("order.shipped", SUBSCRIBER, {"order_id": "live"})
+
+    run = live.events.get(sent.event_id)
+
+    assert run.event_id == sent.event_id and run.name == "order.shipped"
+    assert run.payload == {"order_id": "live"}
+    assert [n.external_id for n in run.notifications] == [SUBSCRIBER]
+
+
+def test_an_event_that_does_not_exist_is_not_found(live: Hermesi) -> None:
+    with pytest.raises(NotFoundError) as caught:
+        live.events.get("evt_01DOESNOTEXIST00000000000")
+
+    assert caught.value.code == "event_not_found"
+
+
+def test_a_subscriber_is_created_read_updated_and_deleted(live: Hermesi) -> None:
+    sid = _fresh()
+
+    created = live.subscribers.put(sid, email="Live@Example.test", first_name="Live", locale="fr", data={"plan": "pro", "seats": 3})
+    assert created.external_id == sid and created.id.startswith("sub_")
+    assert created.email == "live@example.test", "stored lower-cased"
+    assert created.data == {"plan": "pro", "seats": 3}
+
+    unchanged = live.subscribers.put(sid, locale="en")
+    assert (unchanged.locale, unchanged.first_name, unchanged.email) == ("en", "Live", "live@example.test"), "a field left out is left alone"
+
+    cleared = live.subscribers.put(sid, first_name=None)
+    assert cleared.first_name is None and cleared.email == "live@example.test", "None clears one field and only that"
+
+    replaced = live.subscribers.put(sid, data={"plan": "free"})
+    assert replaced.data == {"plan": "free"}, "data replaces, it is not merged"
+
+    assert live.subscribers.get(sid).data == {"plan": "free"}
+    assert live.subscribers.patch(sid, phone_e164="+237690000000").phone_e164 == "+237690000000"
+
+    live.subscribers.delete(sid)
+    live.subscribers.delete(sid)  # deleting again is not an error
+    with pytest.raises(NotFoundError):
+        live.subscribers.get(sid)
+
+
+def test_a_value_of_the_wrong_shape_is_a_validation_error_naming_the_field(live: Hermesi) -> None:
+    with pytest.raises(ValidationError) as caught:
+        live.subscribers.put(_fresh(), phone_e164="690000000")
+
+    assert any("phone_e164" in (d.field or "") for d in caught.value.detail)
+
+
+def test_patching_a_subscriber_that_does_not_exist_is_not_found(live: Hermesi) -> None:
+    with pytest.raises(NotFoundError) as caught:
+        live.subscribers.patch(_fresh(), locale="en")
+
+    assert caught.value.code == "subscriber_not_found"
+
+
+def test_an_id_with_characters_a_path_treats_specially_works_for_every_subscriber_call(live: Hermesi) -> None:
+    sid = f"team/{_fresh()} é?#"
+
+    live.subscribers.put(sid, locale="fr")
+
+    assert live.subscribers.get(sid).external_id == sid
+    live.subscribers.register_channel(sid, "push", "tok-1")
+    assert [c.identifier for c in live.subscribers.get(sid).channels] == ["tok-1"]
+    live.subscribers.delete(sid)
+
+
+def test_a_device_token_is_registered_listed_and_removed(live: Hermesi) -> None:
+    sid = _fresh()
+    live.subscribers.put(sid)
+
+    first = live.subscribers.register_channel(sid, "push", "fcm-token-1", {"platform": "android"})
+    again = live.subscribers.register_channel(sid, "push", "fcm-token-1", {"platform": "android"})
+
+    assert (first.state, again.state) == ("active", "active")
+    channels = live.subscribers.get(sid).channels
+    assert [(c.channel, c.identifier, c.metadata) for c in channels] == [("push", "fcm-token-1", {"platform": "android"})]
+    live.subscribers.remove_channel(sid, "push", "fcm-token-1")
+    live.subscribers.remove_channel(sid, "push", "fcm-token-1")
+    assert live.subscribers.get(sid).channels == []
+    live.subscribers.delete(sid)
+
+
+def test_an_identifier_that_is_a_url_survives_the_round_trip(live: Hermesi) -> None:
+    """A Web Push endpoint is a URL: it has slashes, which a path segment can only carry percent-encoded."""
+    sid = _fresh()
+    live.subscribers.put(sid)
+    identifier = "https://fcm.googleapis.com/fcm/send/abc:APA91b/def"
+    try:
+        live.subscribers.register_channel(sid, "push", identifier, {"transport": "fcm"})
+    except ValidationError:
+        pytest.skip("this deployment refuses that identifier shape for push")
+
+    live.subscribers.remove_channel(sid, "push", identifier)
+
+    assert live.subscribers.get(sid).channels == []
+    live.subscribers.delete(sid)
+
+
+@pytest.mark.skipif(not CATEGORY, reason="set HERMESI_LIVE_CATEGORY to a non-critical category key")
+def test_preferences_are_written_read_and_removed(live: Hermesi) -> None:
+    sid = _fresh()
+    live.subscribers.put(sid)
+
+    after = live.subscribers.update_preferences(sid, global_={"sms": False}, categories={CATEGORY: {"email": False, "push": False}})
+    assert after.global_ == {"sms": False} and after.categories == {CATEGORY: {"email": False, "push": False}}
+
+    removed = live.subscribers.update_preferences(sid, global_={"sms": None}, categories={CATEGORY: {"email": None}})
+    assert removed.global_ == {} and removed.categories == {CATEGORY: {"push": False}}
+    assert live.subscribers.preferences(sid) == removed
+    live.subscribers.delete(sid)
+
+
+def test_an_unknown_category_refuses_the_whole_preference_update(live: Hermesi) -> None:
+    sid = _fresh()
+    live.subscribers.put(sid)
+
+    with pytest.raises(NotFoundError) as caught:
+        live.subscribers.update_preferences(sid, global_={"sms": False}, categories={"no_such_category": {"email": False}})
+
+    assert caught.value.code == "category_not_found"
+    assert live.subscribers.preferences(sid).global_ == {}, "nothing was applied"
+    live.subscribers.delete(sid)
+
+
+@pytest.mark.skipif(not SMS_TEMPLATE, reason="set HERMESI_LIVE_SMS_TEMPLATE to the key of a published sms template")
+def test_a_direct_message_is_sent_replayed_and_read_back(live: Hermesi) -> None:
+    sid = _fresh()
+    live.subscribers.put(sid, phone_e164="+237690000001")
+    key = f"live-{uuid.uuid4()}"
+
+    first = live.messages.send("sms", sid, SMS_TEMPLATE, data={"code": "480219"}, idempotency_key=key)
+    second = live.messages.send("sms", sid, SMS_TEMPLATE, data={"code": "480219"}, idempotency_key=key)
+
+    assert first.status == "queued" and first.replayed is False and first.message_id.startswith("msg_")
+    assert second.replayed is True and second.message_id == first.message_id
+    message = live.messages.get(first.message_id)
+    assert message.id == first.message_id and message.channel == "sms"
+    with pytest.raises(ConflictError):
+        live.messages.send("sms", sid, SMS_TEMPLATE, data={"code": "111111"}, idempotency_key=key)
+    live.subscribers.delete(sid)
+
+
+@pytest.mark.skipif(not SMS_TEMPLATE, reason="set HERMESI_LIVE_SMS_TEMPLATE to the key of a published sms template")
+def test_a_direct_message_to_someone_with_no_phone_is_reported_not_raised(live: Hermesi) -> None:
+    sid = _fresh()
+    live.subscribers.put(sid, email="nophone@example.test")
+
+    result = live.messages.send("sms", sid, SMS_TEMPLATE, data={"code": "1"})
+
+    assert result.status == "skipped" and result.messages[0].reason == "no_channel_identity"
+    live.subscribers.delete(sid)
+
+
+def test_a_direct_message_with_an_unknown_template_is_not_found(live: Hermesi) -> None:
+    with pytest.raises(NotFoundError) as caught:
+        live.messages.send("sms", SUBSCRIBER, "no-such-template")
+
+    assert caught.value.code == "template_not_found"
+
+
+def test_the_server_refuses_inline_content_instead_of_ignoring_it() -> None:
+    """The SDK has no `content` argument at all, so this is asserted against the server directly."""
+    response = httpx.post(
+        f"{URL}/v1/messages",
+        headers={"Authorization": f"Bearer {SECRET}"},
+        json={"channel": "sms", "recipient": SUBSCRIBER, "template": "x", "content": {"body": "hi"}},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "inline_content_not_supported"
