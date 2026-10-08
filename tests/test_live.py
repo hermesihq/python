@@ -339,3 +339,56 @@ def test_the_server_refuses_inline_content_instead_of_ignoring_it() -> None:
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "inline_content_not_supported"
+
+
+def test_a_bulk_import_creates_then_updates_and_each_row_means_what_a_put_would(live: Hermesi) -> None:
+    a, b, c = _fresh(), _fresh(), _fresh()
+
+    first = live.subscribers.bulk(
+        [
+            {"external_id": a, "email": "Bulk.A@Example.test", "first_name": "Aa", "data": {"plan": "pro"}},
+            {"external_id": b, "phone_e164": "+237690000010", "locale": "fr"},
+        ]
+    )
+
+    assert (first.created, first.updated) == (2, 0)
+    assert [(r.external_id, r.status) for r in first.subscribers] == [(a, "created"), (b, "created")]
+    assert live.subscribers.get(a).email == "bulk.a@example.test", "lower-cased, as a put does"
+
+    second = live.subscribers.bulk([{"external_id": a, "first_name": None, "data": {"seats": 3}}, {"external_id": b, "locale": "en"}, {"external_id": c}])
+
+    assert [r.status for r in second.subscribers] == ["updated", "updated", "created"]
+    after_a, after_b = live.subscribers.get(a), live.subscribers.get(b)
+    assert (after_a.email, after_a.first_name, after_a.data) == ("bulk.a@example.test", None, {"seats": 3}), "left out kept, None cleared, data replaced"
+    assert (after_b.phone_e164, after_b.locale) == ("+237690000010", "en")
+    for sid in (a, b, c):
+        live.subscribers.delete(sid)
+
+
+def test_one_invalid_row_refuses_the_whole_batch_and_writes_nothing(live: Hermesi) -> None:
+    good, bad = _fresh(), _fresh()
+
+    with pytest.raises(ValidationError) as caught:
+        live.subscribers.bulk([{"external_id": good, "email": "good@example.test"}, {"external_id": bad, "phone_e164": "690000000"}])
+
+    assert any("subscribers.1.phone_e164" in (d.field or "") for d in caught.value.detail)
+    with pytest.raises(NotFoundError):
+        live.subscribers.get(good)
+
+
+def test_the_same_id_twice_in_a_batch_is_refused(live: Hermesi) -> None:
+    sid = _fresh()
+
+    with pytest.raises(ValidationError) as caught:
+        live.subscribers.bulk([{"external_id": sid}, {"external_id": sid}])
+
+    assert "more than once" in str(caught.value) or any("more than once" in (d.issue or "") for d in caught.value.detail)
+
+
+def test_an_id_with_characters_a_path_treats_specially_is_ordinary_in_a_bulk_body(live: Hermesi) -> None:
+    sid = f"team/{_fresh()} é?#"
+
+    live.subscribers.bulk([{"external_id": sid, "locale": "fr"}])
+
+    assert live.subscribers.get(sid).locale == "fr"
+    live.subscribers.delete(sid)

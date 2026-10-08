@@ -10,7 +10,7 @@ import asyncio
 import os
 import time
 import uuid
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional, TypeVar, Union
@@ -24,6 +24,7 @@ from ._models import Actor, EventResult, PreferenceLink, Recipient, Subscriber
 from ._retry import RetryPolicy, is_retryable_status, parse_retry_after
 from ._server_models import (
     UNSET,
+    BulkSubscribersResult,
     ChannelIdentity,
     EventRun,
     Message,
@@ -38,7 +39,7 @@ from ._wire import path_segment as _path_segment
 
 T = TypeVar("T")
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 DEFAULT_TIMEOUT = 30.0
 ENV_KEY = "HERMESI_SECRET_KEY"
 ENV_URL = "HERMESI_BASE_URL"
@@ -449,6 +450,21 @@ class Subscribers:
                       timezone=timezone, avatar_url=avatar_url, data=data)
         return self._client._run(_calls.put_subscriber(external_id, fields, partial=True))
 
+    def bulk(self, subscribers: Iterable[Mapping[str, Any]]) -> BulkSubscribersResult:
+        """Create or update up to 1 000 subscribers in one request: a first import of your user table, or a nightly sync.
+
+        Each row is a mapping with an ``external_id`` and any of the fields ``put`` takes, and **means exactly what the same ``put``
+        would**: a key you include is set (``None`` clears it), a key you leave out is left alone, ``data`` replaces. A key that is none
+        of those is refused here, naming the row.
+
+        **All or nothing**: if the server finds any row invalid, a ``ValidationError`` lists every problem with the row it is on
+        (``body.subscribers.17.email``) and nothing was written. The same ``external_id`` twice, more than 1 000 rows, or more than
+        5 MB of ``data`` in total are refused too: split a larger import into batches. Every row is an idempotent upsert, so sending
+        the same batch again after a timeout is safe. A full batch takes a few seconds; do not set a very short timeout.
+
+        The result has one entry per row, in the order you sent them, saying whether each was ``created`` or ``updated``."""
+        return self._client._run(_calls.bulk_put_subscribers(subscribers))
+
     def get(self, external_id: str) -> SubscriberProfile:
         """The profile, the registered channel identities and the stored preference overrides."""
         return self._client._run(_calls.get_subscriber(external_id))
@@ -607,6 +623,10 @@ class AsyncSubscribers:
         fields = dict(email=email, phone_e164=phone_e164, first_name=first_name, last_name=last_name, locale=locale,
                       timezone=timezone, avatar_url=avatar_url, data=data)
         return await self._client._run(_calls.put_subscriber(external_id, fields))
+
+    async def bulk(self, subscribers: Iterable[Mapping[str, Any]]) -> BulkSubscribersResult:
+        """See :meth:`Subscribers.bulk`."""
+        return await self._client._run(_calls.bulk_put_subscribers(subscribers))
 
     async def patch(
         self,

@@ -232,6 +232,34 @@ class MessageCreated:
 
 
 @dataclass(frozen=True)
+class BulkSubscriberResult:
+    """One row of a bulk import, as it came out."""
+
+    external_id: str
+    id: str
+    #: ``"created"``: a subscriber that did not exist (or had been deleted, which comes back empty). ``"updated"``: one that did.
+    status: str
+
+
+@dataclass(frozen=True)
+class BulkSubscribersResult:
+    """The answer to ``subscribers.bulk``: one entry per row you sent, in the same order."""
+
+    created: int
+    updated: int
+    subscribers: list[BulkSubscriberResult] = field(default_factory=list)
+
+    @classmethod
+    def from_wire(cls, body: dict[str, Any]) -> BulkSubscribersResult:
+        rows = [
+            BulkSubscriberResult(external_id=str(r["external_id"]), id=str(r["id"]), status=str(r["status"]))
+            for r in body.get("subscribers") or []
+            if isinstance(r, dict)
+        ]
+        return cls(created=int(body.get("created", 0)), updated=int(body.get("updated", 0)), subscribers=rows)
+
+
+@dataclass(frozen=True)
 class MessageResult:
     """The answer to ``messages.send``. ``202``: recorded and queued, nothing is delivered yet."""
 

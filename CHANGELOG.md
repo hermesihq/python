@@ -5,6 +5,16 @@ All notable changes to `hermesi`. This file describes what a consumer gets.
 **`0.x` means the public API can still change.** A minor bump may contain a breaking change; a patch bump will not. Each release
 lists breaking changes first.
 
+## 0.3.0 (2026-10-08)
+
+### Added
+
+- **`subscribers.bulk(rows)`** (and the async one): create or update up to 1 000 subscribers in one request, for a first import or a
+  nightly sync. Each row is a mapping with an `external_id` and any `put` field, with the same meaning (a key you include is set, `None`
+  clears it, a key you leave out is left alone). A key that is none of those is refused naming its row. All or nothing: a server refusal
+  lists every problem with its row and writes nothing. `BulkSubscribersResult` and `BulkSubscriberResult` say which rows were created
+  and which updated.
+
 ## 0.2.0 (2026-10-07)
 
 ### Added
