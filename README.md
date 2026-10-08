@@ -118,6 +118,27 @@ hermesi.subscribers.update_preferences("user_8821", global_={"sms": False}, cate
 hermesi.subscribers.preferences("user_8821").categories  # {"marketing": {"email": False}}
 ```
 
+### Import many at once
+
+```python
+result = hermesi.subscribers.bulk([
+    {"external_id": "user_8821", "email": "amina@example.cm", "phone_e164": "+237690000000", "locale": "fr"},
+    {"external_id": "user_8822", "email": "paul@example.cm", "data": {"plan": "free"}},
+    {"external_id": "user_8823", "phone_e164": None},   # None clears, as in put
+])
+result.created, result.updated                           # 3, 0
+[(r.external_id, r.status) for r in result.subscribers]  # one per row, in order: "created" or "updated"
+```
+
+For a first import of your user table or a nightly sync: up to **1 000** rows per call (split a bigger file into batches). Each row is a
+dict with an `external_id` and any of the fields `put` takes, and **means exactly what the same `put` would**: a key you include is set
+(`None` clears it), a key you leave out is left alone, and `data` replaces. A key that is none of those is refused, naming the row.
+
+**All or nothing.** If the server finds any row invalid it raises a `ValidationError` that lists every problem with its row
+(`body.subscribers.17.email`) and **nothing was written**, so fix them all and send the same batch again. The same `external_id` twice, or
+more than 5 MB of `data` in total, is refused too. Every row is an idempotent upsert, so resending after a timeout changes nothing; a full
+batch takes a few seconds, so do not set a very short timeout.
+
 `register_channel` refreshes the identity and makes it active again if a provider had marked it invalid; it never duplicates it.
 In `update_preferences`, `True` or `False` sets an override and `None` removes it, so the category's default applies again. It is all
 or nothing: an unknown category (`NotFoundError`) or a critical one (`ValidationError`) refuses the whole update.
@@ -230,7 +251,7 @@ read, and an invented answer would make a test pass for the wrong reason.
 
 ## Not included
 
-Bulk subscriber import (a later phase of Hermesi), the dashboard's Management API (workflows, templates, providers) and inline
+The dashboard's Management API (workflows, templates, providers) and inline
 `content` for a direct message (Hermesi refuses it on purpose). Outbound webhooks are not implemented in Hermesi yet either, so
 there is nothing to verify.
 

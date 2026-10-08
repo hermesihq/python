@@ -8,6 +8,7 @@ a copy that can drift.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Optional, TypeVar, Union
 
@@ -17,6 +18,8 @@ from ._errors import HermesiError, error_from_response
 from ._models import Subscriber
 from ._server_models import (
     UNSET,
+    BulkSubscriberResult,
+    BulkSubscribersResult,
     ChannelIdentity,
     EventRun,
     Message,
@@ -93,6 +96,36 @@ def put_subscriber(external_id: str, fields: dict[str, Any], *, partial: bool = 
         body=body,
         parse=lambda r, _k: SubscriberProfile.from_wire(_object(r, "external_id")),
         simulated=lambda n: _simulated_profile(external_id, body, n),
+    )
+
+
+def bulk_put_subscribers(rows: Iterable[Mapping[str, Any]]) -> Call[BulkSubscribersResult]:
+    """Rows are mappings: ``external_id`` and any of the profile fields. A key present is sent (``None`` clears it), a key absent is left
+    alone, which is the same rule as ``put`` with a dict standing in for the keyword arguments. A key that is none of those is a typo
+    (``phone`` for ``phone_e164``) and is refused here, with the row it is on, rather than by a server that would refuse the whole batch."""
+    items: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise TypeError(f"row {index} must be a mapping with an external_id, got {type(row).__name__}")
+        for name in row:
+            if name != "external_id" and name not in PROFILE_FIELDS:
+                raise ValueError(f'row {index}: unknown subscriber field "{name}"; expected external_id, {", ".join(PROFILE_FIELDS)}')
+        external_id = row.get("external_id")
+        if not isinstance(external_id, str) or not external_id:
+            raise ValueError(f"row {index}: external_id is required")
+        items.append({"external_id": external_id, **{name: row[name] for name in PROFILE_FIELDS if name in row and row[name] is not UNSET}})
+    if not items:
+        raise ValueError("give at least one subscriber")
+    return Call(
+        "POST",
+        "/v1/subscribers/bulk",
+        body={"subscribers": items},
+        parse=lambda r, _k: BulkSubscribersResult.from_wire(_object(r, "subscribers")),
+        simulated=lambda n: BulkSubscribersResult(
+            created=len(items),
+            updated=0,
+            subscribers=[BulkSubscriberResult(external_id=i["external_id"], id=f"sub_simulated_{n}_{x}", status="created") for x, i in enumerate(items)],
+        ),
     )
 
 

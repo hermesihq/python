@@ -25,6 +25,8 @@ from ._models import Actor, EventResult, NotificationSummary, PreferenceLink, Re
 from ._retry import RetryPolicy
 from ._server_models import (
     UNSET,
+    BulkSubscriberResult,
+    BulkSubscribersResult,
     ChannelIdentity,
     EventRun,
     Message,
@@ -44,6 +46,8 @@ __all__ = [
     "Actor",
     "AsyncHermesi",
     "AuthenticationError",
+    "BulkSubscriberResult",
+    "BulkSubscribersResult",
     "ChannelIdentity",
     "ConflictError",
     "ErrorDetail",
